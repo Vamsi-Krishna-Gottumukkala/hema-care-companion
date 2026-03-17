@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { Eye, EyeOff, Lock, Mail, User, Phone, Dna, CheckCircle2 } from "lucide-react";
 import hemaLogo from "@/assets/hema-logo.png";
 
 const Register = () => {
   const navigate = useNavigate();
+  const { register } = useAuth();
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -16,11 +19,29 @@ const Register = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
+    if (form.password !== form.confirm) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (form.password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setLoading(false);
-    setDone(true);
-    setTimeout(() => navigate("/login"), 2000);
+    try {
+      const { success } = await register(form.name, form.email, form.password, form.phone || undefined);
+      setLoading(false);
+      if (success) {
+        setDone(true);
+        setTimeout(() => navigate("/dashboard"), 2000);
+      } else {
+        setError("Registration failed. Email may already be in use.");
+      }
+    } catch (err: unknown) {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : "Registration failed");
+    }
   };
 
   if (done) {
@@ -125,6 +146,12 @@ const Register = () => {
               <input type="checkbox" required className="mt-0.5 rounded border-border accent-primary" />
               <p className="text-xs text-muted-foreground">I agree to the <span className="text-primary cursor-pointer">Terms of Service</span> and <span className="text-primary cursor-pointer">Privacy Policy</span>. My health data will be encrypted and HIPAA-compliant.</p>
             </div>
+
+            {error && (
+              <div className="bg-danger-light border border-danger/20 text-danger rounded-lg px-4 py-3 text-sm">
+                {error}
+              </div>
+            )}
 
             <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base">
               {loading ? "Creating Account..." : "Create Account"}

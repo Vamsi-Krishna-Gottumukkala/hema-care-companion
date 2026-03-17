@@ -1,45 +1,85 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { authApi, setToken, getToken, clearToken, type UserData } from "@/services/api";
 
 export type UserRole = "user" | "admin" | null;
 
-interface AuthUser {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  avatar: string;
-}
-
 interface AuthContextType {
-  user: AuthUser | null;
+  user: UserData | null;
   login: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole }>;
+  loginWithGoogle: (idToken: string) => Promise<{ success: boolean; role?: UserRole }>;
+  register: (name: string, email: string, password: string, phone?: string, age?: number) => Promise<{ success: boolean; role?: UserRole }>;
   logout: () => void;
   isAuthenticated: boolean;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = async (email: string, _password: string): Promise<{ success: boolean; role?: UserRole }> => {
-    await new Promise((r) => setTimeout(r, 800));
-    if (email === "admin@hemaai.com") {
-      const adminUser: AuthUser = { id: "a1", name: "Dr. Michael Chen", email, role: "admin", avatar: "MC" };
-      setUser(adminUser);
-      return { success: true, role: "admin" };
-    } else if (email.includes("@")) {
-      const userObj: AuthUser = { id: "u1", name: "Sarah Johnson", email, role: "user", avatar: "SJ" };
-      setUser(userObj);
-      return { success: true, role: "user" };
+  // On mount, check if there's a stored token and load user
+  useEffect(() => {
+    const token = getToken();
+    if (token) {
+      authApi
+        .getMe()
+        .then((userData) => {
+          setUser(userData);
+        })
+        .catch(() => {
+          clearToken();
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
-    return { success: false };
+  }, []);
+
+  const login = async (email: string, password: string): Promise<{ success: boolean; role?: UserRole }> => {
+    try {
+      const response = await authApi.login(email, password);
+      setToken(response.access_token);
+      setUser(response.user);
+      return { success: true, role: response.user.role as UserRole };
+    } catch (error) {
+      return { success: false };
+    }
   };
 
-  const logout = () => setUser(null);
+  const loginWithGoogle = async (idToken: string): Promise<{ success: boolean; role?: UserRole }> => {
+    try {
+      const response = await authApi.loginGoogle(idToken);
+      setToken(response.access_token);
+      setUser(response.user);
+      return { success: true, role: response.user.role as UserRole };
+    } catch (error) {
+      return { success: false };
+    }
+  };
+
+  const register = async (
+    name: string, email: string, password: string,
+    phone?: string, age?: number
+  ): Promise<{ success: boolean; role?: UserRole }> => {
+    try {
+      const response = await authApi.register(name, email, password, phone, age);
+      setToken(response.access_token);
+      setUser(response.user);
+      return { success: true, role: response.user.role as UserRole };
+    } catch (error) {
+      return { success: false };
+    }
+  };
+
+  const logout = () => {
+    clearToken();
+    setUser(null);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login, loginWithGoogle, register, logout, isAuthenticated: !!user, loading }}>
       {children}
     </AuthContext.Provider>
   );

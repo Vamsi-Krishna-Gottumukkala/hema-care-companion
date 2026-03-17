@@ -125,10 +125,10 @@ const Login = () => {
           </div>
 
           <div className="mt-8 p-4 bg-muted/50 rounded-xl border border-border">
-            <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Demo Credentials</p>
+            <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Admin Access</p>
             <div className="space-y-1 text-xs text-muted-foreground">
-              <p><span className="font-medium text-foreground">User:</span> user@email.com / any password</p>
-              <p><span className="font-medium text-foreground">Admin:</span> admin@hemaai.com / any password</p>
+              <p><span className="font-medium text-foreground">Email:</span> admin@hemaai.com</p>
+              <p><span className="font-medium text-foreground">Password:</span> admin123</p>
             </div>
           </div>
 
