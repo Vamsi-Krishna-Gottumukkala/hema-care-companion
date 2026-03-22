@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from app.auth.dependencies import get_current_user
 from app.database import get_supabase_admin
-from app.hospitals.google_maps_service import search_nearby_hospitals
+from app.hospitals.mapbox_service import search_nearby_hospitals
 
 router = APIRouter(prefix="/api", tags=["Hospitals & Doctors"])
 
@@ -13,7 +13,7 @@ async def get_nearby_hospitals(
     radius: int = Query(5000, description="Search radius in meters"),
     user: dict = Depends(get_current_user),
 ):
-    """Find nearby hospitals via Google Maps API."""
+    """Find nearby hospitals via Mapbox API."""
     hospitals = await search_nearby_hospitals(lat, lng, radius)
     return {"hospitals": hospitals, "total": len(hospitals)}
 

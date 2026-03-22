@@ -1,47 +1,79 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle, CheckCircle, Activity, Brain, TrendingUp,
-  FileText, Microscope, ChevronRight, Info, BarChart2, Loader2
+  FileText, Microscope, ChevronRight, Info, BarChart2, Loader2, XCircle
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from "recharts";
+import { diagnosisApi, reportsApi, type DiagnosisRecord } from "@/services/api";
 
-const bloodData = [
-  { param: "WBC", value: 12.4, normal: 8.0, unit: "×10³/µL" },
-  { param: "RBC", value: 3.8, normal: 5.0, unit: "×10⁶/µL" },
-  { param: "HGB", value: 9.2, normal: 14.0, unit: "g/dL" },
-  { param: "PLT", value: 98, normal: 275, unit: "×10³/µL" },
-];
-
-const radarData = [
-  { subject: "WBC", value: 88, fullMark: 100 },
-  { subject: "RBC", value: 40, fullMark: 100 },
-  { subject: "HGB", value: 35, fullMark: 100 },
-  { subject: "PLT", value: 25, fullMark: 100 },
-  { subject: "NEU", value: 90, fullMark: 100 },
-  { subject: "LYM", value: 38, fullMark: 100 },
-];
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const fullReportUrl = (url: string) => {
+  const token = localStorage.getItem("token");
+  const base = url.startsWith("/") ? `${API_BASE}${url}` : url;
+  return token ? `${base}?token=${token}` : base;
+};
 
 const DiagnosisResult = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const diagnosisId = searchParams.get("id");
+
   const [loading, setLoading] = useState(true);
+  const [diagnosis, setDiagnosis] = useState<DiagnosisRecord | null>(null);
+  const [error, setError] = useState("");
   const [animScore, setAnimScore] = useState(0);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportUrl, setReportUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      setLoading(false);
-      let s = 0;
-      const interval = setInterval(() => {
-        s += 2;
-        setAnimScore(s);
-        if (s >= 87) clearInterval(interval);
-      }, 20);
-    }, 2000);
-    return () => clearTimeout(t);
-  }, []);
+    if (!diagnosisId) {
+      // No ID — try to load latest from history
+      diagnosisApi.getHistory(1, 1).then((res) => {
+        if (res.items.length > 0) {
+          navigate(`/diagnosis?id=${res.items[0].id}`, { replace: true });
+        } else {
+          setError("No diagnosis found. Please run a test first.");
+          setLoading(false);
+        }
+      }).catch(() => {
+        setError("Failed to load diagnosis.");
+        setLoading(false);
+      });
+      return;
+    }
+
+    diagnosisApi.getDetail(diagnosisId)
+      .then((data) => {
+        setDiagnosis(data);
+        setLoading(false);
+
+        // Animate confidence score
+        const targetScore = data.confidence_score || 0;
+        let s = 0;
+        const interval = setInterval(() => {
+          s += 2;
+          setAnimScore(Math.min(s, targetScore));
+          if (s >= targetScore) clearInterval(interval);
+        }, 20);
+
+        // Auto-generate report in background
+        setReportGenerating(true);
+        reportsApi.generate(data.id)
+          .then((r) => {
+            setReportUrl(r.report_url ? fullReportUrl(r.report_url) : null);
+          })
+          .catch(() => {})
+          .finally(() => setReportGenerating(false));
+      })
+      .catch(() => {
+        setError("Failed to load diagnosis result.");
+        setLoading(false);
+      });
+  }, [diagnosisId, navigate]);
 
   if (loading) {
     return (
@@ -65,34 +97,82 @@ const DiagnosisResult = () => {
     );
   }
 
+  if (error || !diagnosis) {
+    return (
+      <div className="max-w-2xl mx-auto py-20 text-center">
+        <XCircle className="h-12 w-12 text-danger mx-auto mb-4" />
+        <h2 className="text-xl font-bold mb-2">No Result Found</h2>
+        <p className="text-muted-foreground text-sm mb-6">{error || "Please run a diagnosis first."}</p>
+        <button onClick={() => navigate("/enter-values")} className="btn-primary">Run New Diagnosis</button>
+      </div>
+    );
+  }
+
+  const isDetected = diagnosis.status === "detected";
+  const riskLevel = diagnosis.risk_level || "low";
+  const params: { param: string; value: number; normal: number; unit: string }[] = (diagnosis.parameter_analysis || []).map((p) => ({
+    param: p.param.toUpperCase().slice(0, 4),
+    value: p.value,
+    normal: (p.normal_min + p.normal_max) / 2,
+    unit: p.unit,
+  }));
+
+  const radarData = (diagnosis.parameter_analysis || []).slice(0, 6).map((p) => ({
+    subject: p.param.toUpperCase().slice(0, 3),
+    value: p.flagged ? Math.min(90, (p.value / p.normal_max) * 80) : Math.min(60, (p.value / p.normal_max) * 60),
+    fullMark: 100,
+  }));
+
+  const getRiskColor = (r: string) => {
+    if (r === "high") return "text-danger";
+    if (r === "medium") return "text-warning";
+    return "text-success";
+  };
+  const getRiskBg = (r: string) => {
+    if (r === "high") return "bg-danger-light border-danger/20";
+    if (r === "medium") return "bg-warning-light border-warning/20";
+    return "bg-success-light border-success/20";
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-danger-light flex items-center justify-center">
-            <Activity className="h-5 w-5 text-danger" />
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDetected ? "bg-danger-light" : "bg-success-light"}`}>
+            <Activity className={`h-5 w-5 ${isDetected ? "text-danger" : "text-success"}`} />
           </div>
           <div>
             <h1 className="text-2xl font-bold font-display">AI Diagnosis Result</h1>
-            <p className="text-sm text-muted-foreground">Analysis completed · March 15, 2024 · 14:23 UTC</p>
+            <p className="text-sm text-muted-foreground">
+              Analysis completed · {diagnosis.created_at ? new Date(diagnosis.created_at).toLocaleString("en-GB") : ""}
+            </p>
           </div>
         </div>
-        <button onClick={() => navigate("/reports")} className="btn-primary gap-2">
-          <FileText className="h-4 w-4" /> View Report
+        <button
+          onClick={() => navigate(`/reports?id=${diagnosis.id}`)}
+          className="btn-primary gap-2"
+          disabled={reportGenerating}
+        >
+          {reportGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+          {reportGenerating ? "Generating..." : "View Report"}
         </button>
       </div>
 
       {/* Main result cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Detection */}
-        <div className="lg:col-span-1 bg-danger-light border-2 border-danger/30 rounded-xl p-5 flex flex-col items-center text-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-danger/15 flex items-center justify-center">
-            <AlertTriangle className="h-7 w-7 text-danger" />
+        <div className={`rounded-xl p-5 flex flex-col items-center text-center gap-3 border-2 ${isDetected ? "bg-danger-light border-danger/30" : "bg-success-light border-success/30"}`}>
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center ${isDetected ? "bg-danger/15" : "bg-success/15"}`}>
+            {isDetected
+              ? <AlertTriangle className="h-7 w-7 text-danger" />
+              : <CheckCircle className="h-7 w-7 text-success" />}
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Detection Status</p>
-            <p className="text-xl font-bold text-danger mt-1">DETECTED</p>
+            <p className={`text-xl font-bold mt-1 ${isDetected ? "text-danger" : "text-success"}`}>
+              {isDetected ? "DETECTED" : "CLEAR"}
+            </p>
           </div>
         </div>
 
@@ -103,20 +183,21 @@ const DiagnosisResult = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Cancer Type</p>
-            <p className="text-xl font-bold text-primary mt-1">ALL</p>
-            <p className="text-xs text-muted-foreground">Acute Lymphoblastic Leukemia</p>
+            <p className="text-xl font-bold text-primary mt-1">{diagnosis.cancer_type?.toUpperCase() || "N/A"}</p>
           </div>
         </div>
 
         {/* Risk */}
-        <div className="bg-danger-light border border-danger/20 rounded-xl p-5 flex flex-col items-center text-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-danger/15 flex items-center justify-center">
-            <TrendingUp className="h-7 w-7 text-danger" />
+        <div className={`rounded-xl p-5 flex flex-col items-center text-center gap-3 border ${getRiskBg(riskLevel)}`}>
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center ${getRiskBg(riskLevel)}`}>
+            <TrendingUp className={`h-7 w-7 ${getRiskColor(riskLevel)}`} />
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Risk Level</p>
-            <p className="text-xl font-bold text-danger mt-1">HIGH</p>
-            <span className="badge-high mt-1">Immediate Action</span>
+            <p className={`text-xl font-bold mt-1 ${getRiskColor(riskLevel)}`}>{riskLevel.toUpperCase()}</p>
+            {riskLevel === "high" && <span className="badge-high mt-1">Immediate Action</span>}
+            {riskLevel === "medium" && <span className="badge-medium mt-1">Monitor Closely</span>}
+            {riskLevel === "low" && <span className="badge-low mt-1">Routine Check</span>}
           </div>
         </div>
 
@@ -132,78 +213,113 @@ const DiagnosisResult = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Confidence</p>
-            <p className="text-xl font-bold text-foreground mt-1">{animScore}%</p>
+            <p className="text-xl font-bold text-foreground mt-1">{diagnosis.confidence_score}%</p>
           </div>
         </div>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Bar Chart */}
-        <div className="medical-card p-5">
-          <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-            <BarChart2 className="h-4 w-4 text-primary" /> Blood Parameter Analysis
-          </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={bloodData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="param" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-              <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-              <Tooltip
-                contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
-                labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-              />
-              <Bar dataKey="normal" name="Normal Range" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="value" name="Patient Value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {params.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="medical-card p-5">
+            <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 text-primary" /> Blood Parameter Analysis
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={params} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="param" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <Tooltip
+                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
+                  labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                />
+                <Bar dataKey="normal" name="Normal (avg)" fill="#64748b" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="value" name="Patient Value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
 
-        {/* Radar */}
-        <div className="medical-card p-5">
-          <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-            <Brain className="h-4 w-4 text-primary" /> AI Risk Mapping
-          </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="hsl(var(--border))" />
-              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-              <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Radar name="Risk Score" dataKey="value" stroke="hsl(var(--danger))" fill="hsl(var(--danger))" fillOpacity={0.25} />
-            </RadarChart>
-          </ResponsiveContainer>
+          <div className="medical-card p-5">
+            <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Brain className="h-4 w-4 text-primary" /> AI Risk Mapping
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="hsl(var(--border))" />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                <Radar name="Risk Score" dataKey="value" stroke="hsl(var(--danger))" fill="hsl(var(--danger))" fillOpacity={0.25} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* AI Explanation */}
-      <div className="medical-card p-5">
-        <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Brain className="h-4 w-4 text-primary" /> AI Explanation & Clinical Notes
-        </h3>
-        <div className="space-y-3">
-          {[
-            { type: "critical", text: "WBC Count (12.4 ×10³/µL) is significantly elevated above normal range (4.5–11.0), indicating possible lymphocytic proliferation." },
-            { type: "critical", text: "Hemoglobin (9.2 g/dL) is below normal threshold, consistent with anemia often seen in ALL patients." },
-            { type: "critical", text: "Platelet Count (98 ×10³/µL) shows thrombocytopenia, a hallmark of acute leukemia." },
-            { type: "info", text: "Neutrophil percentage (78%) is elevated suggesting immune stress response or infection accompaniment." },
-            { type: "recommendation", text: "RECOMMENDATION: Immediate bone marrow biopsy and flow cytometry are strongly advised to confirm diagnosis and determine treatment protocol." },
-          ].map((item, idx) => (
-            <div key={idx} className={`flex items-start gap-3 p-3 rounded-lg border ${item.type === "critical" ? "bg-danger-light border-danger/20" : item.type === "recommendation" ? "bg-primary-light border-primary/20" : "bg-warning-light border-warning/20"}`}>
-              {item.type === "critical" && <AlertTriangle className="h-4 w-4 text-danger flex-shrink-0 mt-0.5" />}
-              {item.type === "info" && <Info className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />}
-              {item.type === "recommendation" && <CheckCircle className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />}
-              <p className={`text-sm ${item.type === "critical" ? "text-danger" : item.type === "recommendation" ? "text-primary" : "text-warning"}`}>{item.text}</p>
-            </div>
-          ))}
+      {diagnosis.ai_explanation && diagnosis.ai_explanation.length > 0 && (
+        <div className="medical-card p-5">
+          <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Brain className="h-4 w-4 text-primary" /> AI Explanation & Clinical Notes
+          </h3>
+          <div className="space-y-3">
+            {diagnosis.ai_explanation.map((text, idx) => {
+              const isFirst = idx === 0;
+              const isLast = idx === diagnosis.ai_explanation.length - 1;
+              const type = isLast ? "recommendation" : isFirst || (diagnosis.parameter_analysis?.[idx]?.flagged) ? "critical" : "info";
+              return (
+                <div key={idx} className={`flex items-start gap-3 p-3 rounded-lg border ${type === "critical" ? "bg-danger-light border-danger/20" : type === "recommendation" ? "bg-primary-light border-primary/20" : "bg-warning-light border-warning/20"}`}>
+                  {type === "critical" && <AlertTriangle className="h-4 w-4 text-danger flex-shrink-0 mt-0.5" />}
+                  {type === "info" && <Info className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />}
+                  {type === "recommendation" && <CheckCircle className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />}
+                  <p className={`text-sm ${type === "critical" ? "text-danger" : type === "recommendation" ? "text-primary" : "text-warning"}`}>{text}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Parameter details table */}
+      {params.length > 0 && (
+        <div className="medical-card p-5">
+          <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" /> Detailed Parameter Analysis
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full data-table text-sm">
+              <thead><tr><th>Parameter</th><th>Value</th><th>Normal Range</th><th>Unit</th><th>Status</th></tr></thead>
+              <tbody>
+                {(diagnosis.parameter_analysis || []).map((p) => (
+                  <tr key={p.param}>
+                    <td className="font-medium">{p.param}</td>
+                    <td className={`font-bold ${p.flagged ? "text-danger" : "text-success"}`}>{p.value}</td>
+                    <td className="text-muted-foreground">{p.normal_min} – {p.normal_max}</td>
+                    <td className="text-muted-foreground">{p.unit}</td>
+                    <td>
+                      {p.flagged
+                        ? <span className="badge-high">Abnormal</span>
+                        : <span className="badge-low">Normal</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex flex-wrap gap-3">
-        <button onClick={() => navigate("/reports")} className="btn-primary">
-          <FileText className="h-4 w-4" /> View Full Report
+        <button
+          onClick={() => navigate(`/reports?id=${diagnosis.id}`)}
+          className="btn-primary"
+          disabled={reportGenerating}
+        >
+          <FileText className="h-4 w-4" />
+          {reportGenerating ? "Generating Report..." : "View Full Report"}
         </button>
-        <button onClick={() => navigate("/hospitals")} className="btn-outline-primary">
+        <button onClick={() => navigate("/hospitals")} className="btn-secondary">
           <Activity className="h-4 w-4" /> Find Specialists
         </button>
         <button onClick={() => navigate("/history")} className="btn-secondary">

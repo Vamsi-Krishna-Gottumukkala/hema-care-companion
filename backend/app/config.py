@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: str = ""
 
-    # Google Maps
-    GOOGLE_MAPS_API_KEY: str = ""
+    # Mapbox
+    MAPBOX_API_KEY: str = ""
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:8080,http://localhost:5173"

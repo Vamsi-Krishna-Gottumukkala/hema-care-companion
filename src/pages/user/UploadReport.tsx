@@ -1,19 +1,40 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Upload, FileText, Image, X, Eye, CheckCircle, Loader2, Microscope, AlertCircle } from "lucide-react";
+import { diagnosisApi } from "@/services/api";
+
+const paramLabels: Record<string, string> = {
+  wbc: "WBC Count", rbc: "RBC Count", hemoglobin: "Hemoglobin",
+  platelet: "Platelet Count", neutrophils: "Neutrophils",
+  lymphocytes: "Lymphocytes", monocytes: "Monocytes", eosinophils: "Eosinophils",
+};
+const paramUnits: Record<string, string> = {
+  wbc: "×10³/µL", rbc: "×10⁶/µL", hemoglobin: "g/dL", platelet: "×10³/µL",
+  neutrophils: "%", lymphocytes: "%", monocytes: "%", eosinophils: "%",
+};
+const normalRanges: Record<string, { min: number; max: number }> = {
+  wbc: { min: 4.0, max: 11.0 }, rbc: { min: 4.5, max: 5.5 },
+  hemoglobin: { min: 12.0, max: 17.5 }, platelet: { min: 150, max: 400 },
+  neutrophils: { min: 40, max: 70 }, lymphocytes: { min: 20, max: 40 },
+  monocytes: { min: 2, max: 8 }, eosinophils: { min: 1, max: 4 },
+};
 
 const UploadReport = () => {
   const navigate = useNavigate();
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [stage, setStage] = useState<"idle" | "uploading" | "processing" | "done">("idle");
-  const [progress, setProgress] = useState(0);
-  const [extracted, setExtracted] = useState<Record<string, string> | null>(null);
+  const [stage, setStage] = useState<"idle" | "processing" | "done" | "error">("idle");
+  const [extracted, setExtracted] = useState<Record<string, number | null> | null>(null);
+  const [diagnosisId, setDiagnosisId] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const handleFile = (f: File) => {
     if (!f) return;
     setFile(f);
+    setStage("idle");
+    setExtracted(null);
+    setErrorMsg("");
     if (f.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onload = (e) => setPreview(e.target?.result as string);
@@ -36,26 +57,34 @@ const UploadReport = () => {
   };
 
   const processReport = async () => {
-    setStage("uploading");
-    setProgress(0);
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise((r) => setTimeout(r, 100));
-      setProgress(i);
-    }
+    if (!file) return;
     setStage("processing");
-    await new Promise((r) => setTimeout(r, 2000));
-    setExtracted({
-      wbc: "12.4", rbc: "3.8", hemoglobin: "9.2", platelet: "98",
-      neutrophils: "78", lymphocytes: "15", monocytes: "5", eosinophils: "2",
-    });
-    setStage("done");
+    setErrorMsg("");
+    try {
+      const result = await diagnosisApi.uploadReport(file);
+      setExtracted(result.extracted_values || {});
+      setDiagnosisId(result.id);
+      setStage("done");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to process report.");
+      setStage("error");
+    }
   };
 
-  const proceedToDiagnosis = () => navigate("/diagnosis");
+  const proceedToDiagnosis = () => {
+    if (diagnosisId) navigate(`/diagnosis?id=${diagnosisId}`);
+    else navigate("/diagnosis");
+  };
+
+  const abnormalCount = extracted ? Object.entries(extracted).filter(([key, val]) => {
+    if (val === null || val === undefined) return false;
+    const range = normalRanges[key];
+    if (!range) return false;
+    return val < range.min || val > range.max;
+  }).length : 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
       <div className="page-header">
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center">
@@ -105,7 +134,7 @@ const UploadReport = () => {
                   <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
                   <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
                 </div>
-                <button onClick={() => { setFile(null); setPreview(null); setStage("idle"); setExtracted(null); }}>
+                <button onClick={() => { setFile(null); setPreview(null); setStage("idle"); setExtracted(null); setErrorMsg(""); }}>
                   <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                 </button>
               </div>
@@ -117,35 +146,31 @@ const UploadReport = () => {
               </button>
             )}
 
-            {(stage === "uploading" || stage === "processing") && (
+            {stage === "processing" && (
               <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-foreground font-medium flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    {stage === "uploading" ? "Uploading report..." : "Extracting blood parameters..."}
-                  </span>
-                  <span className="text-primary font-semibold">{stage === "uploading" ? `${progress}%` : ""}</span>
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span className="text-foreground font-medium">Extracting blood parameters with AI Engine...</span>
                 </div>
-                {stage === "uploading" && (
-                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
-                  </div>
-                )}
-                {stage === "processing" && (
-                  <div className="grid grid-cols-4 gap-2">
-                    {["WBC", "RBC", "HGB", "PLT", "NEU", "LYM", "MON", "EOS"].map((p) => (
-                      <div key={p} className="bg-muted/50 rounded-lg p-2 text-center animate-pulse">
-                        <p className="text-xs text-muted-foreground">{p}</p>
-                        <div className="h-4 bg-muted rounded mt-1 mx-auto w-8" />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="grid grid-cols-4 gap-2">
+                  {["WBC", "RBC", "HGB", "PLT", "NEU", "LYM", "MON", "EOS"].map((p) => (
+                    <div key={p} className="bg-muted/50 rounded-lg p-2 text-center animate-pulse">
+                      <p className="text-xs text-muted-foreground">{p}</p>
+                      <div className="h-4 bg-muted rounded mt-1 mx-auto w-8" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {stage === "error" && (
+              <div className="mt-4 bg-danger-light border border-danger/20 text-danger rounded-lg px-4 py-3 text-sm flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
               </div>
             )}
           </div>
 
-          {/* Supported Formats */}
           <div className="medical-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-3">Supported Lab Reports</h3>
             <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
@@ -163,11 +188,9 @@ const UploadReport = () => {
         <div className="space-y-4">
           {preview && (
             <div className="medical-card p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-foreground flex items-center gap-2">
-                  <Eye className="h-4 w-4 text-primary" /> Report Preview
-                </h3>
-              </div>
+              <h3 className="font-semibold text-foreground flex items-center gap-2 mb-3">
+                <Eye className="h-4 w-4 text-primary" /> Report Preview
+              </h3>
               <img src={preview} alt="Report" className="w-full rounded-lg border border-border max-h-64 object-contain bg-muted" />
             </div>
           )}
@@ -180,33 +203,27 @@ const UploadReport = () => {
               </div>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 {Object.entries(extracted).map(([key, val]) => {
-                  const labels: Record<string, string> = {
-                    wbc: "WBC Count", rbc: "RBC Count", hemoglobin: "Hemoglobin",
-                    platelet: "Platelet Count", neutrophils: "Neutrophils",
-                    lymphocytes: "Lymphocytes", monocytes: "Monocytes", eosinophils: "Eosinophils",
-                  };
-                  const units: Record<string, string> = {
-                    wbc: "×10³/µL", rbc: "×10⁶/µL", hemoglobin: "g/dL", platelet: "×10³/µL",
-                    neutrophils: "%", lymphocytes: "%", monocytes: "%", eosinophils: "%",
-                  };
-                  const flagged = (key === "wbc" && parseFloat(val) > 11) || (key === "hemoglobin" && parseFloat(val) < 12) || (key === "platelet" && parseFloat(val) < 150);
+                  const range = normalRanges[key];
+                  const flagged = val !== null && val !== undefined && range && (val < range.min || val > range.max);
                   return (
                     <div key={key} className={`p-3 rounded-lg border ${flagged ? "border-danger/30 bg-danger-light" : "border-border bg-muted/30"}`}>
-                      <p className="text-xs text-muted-foreground">{labels[key]}</p>
+                      <p className="text-xs text-muted-foreground">{paramLabels[key] || key}</p>
                       <p className={`text-lg font-bold font-display ${flagged ? "text-danger" : "text-foreground"}`}>
-                        {val} <span className="text-xs font-normal text-muted-foreground">{units[key]}</span>
+                        {val !== null && val !== undefined ? val : "—"} <span className="text-xs font-normal text-muted-foreground">{paramUnits[key]}</span>
                       </p>
                       {flagged && <p className="text-xs text-danger mt-0.5 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Abnormal</p>}
                     </div>
                   );
                 })}
               </div>
-              <div className="bg-warning-light border border-warning/20 rounded-lg p-3 mb-4 text-xs text-warning flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <span>3 parameters are outside normal range. Running AI analysis recommended.</span>
-              </div>
+              {abnormalCount > 0 && (
+                <div className="bg-warning-light border border-warning/20 rounded-lg p-3 mb-4 text-xs text-warning flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>{abnormalCount} parameter{abnormalCount > 1 ? "s are" : " is"} outside normal range. AI analysis complete.</span>
+                </div>
+              )}
               <button onClick={proceedToDiagnosis} className="btn-primary w-full">
-                <Microscope className="h-4 w-4" /> Run AI Diagnosis
+                <Microscope className="h-4 w-4" /> View AI Diagnosis Result
               </button>
             </div>
           )}

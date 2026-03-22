@@ -1,26 +1,61 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MapPin, Navigation, Star, Phone, ChevronRight, Building2,
-  Loader2, Search, Filter, RefreshCw, Clock, Users
+  Loader2, Search, RefreshCw, Clock, Users
 } from "lucide-react";
-import { mockHospitals } from "@/data/mockData";
+import { hospitalsApi, type Hospital } from "@/services/api";
 
 const HospitalFinder = () => {
   const navigate = useNavigate();
   const [locating, setLocating] = useState(false);
   const [located, setLocated] = useState(false);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("distance");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationName, setLocationName] = useState("");
 
   const requestLocation = () => {
     setLocating(true);
-    setTimeout(() => { setLocating(false); setLocated(true); }, 1800);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setCoords({ lat, lng });
+          setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+          try {
+            const result = await hospitalsApi.searchNearby(lat, lng, 5000);
+            setHospitals(result.hospitals);
+          } catch {
+            setHospitals([]);
+          }
+          setLocating(false);
+          setLocated(true);
+        },
+        () => {
+          // Fallback: use default location
+          setLocating(false);
+          alert("Location access denied. Please enable GPS in your browser settings.");
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
+      setLocating(false);
+      alert("Geolocation not supported by your browser.");
+    }
   };
 
-  const filtered = mockHospitals
-    .filter((h) => h.name.toLowerCase().includes(search.toLowerCase()) || h.address.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => sortBy === "rating" ? b.rating - a.rating : parseFloat(a.distance) - parseFloat(b.distance));
+  const filtered = hospitals
+    .filter((h) =>
+      (h.name || "").toLowerCase().includes(search.toLowerCase()) ||
+      (h.address || "").toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sortBy === "rating") return (b.rating || 0) - (a.rating || 0);
+      return 0; // Keep API order for distance
+    });
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -64,47 +99,13 @@ const HospitalFinder = () => {
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold text-success">Location Detected</p>
-            <p className="text-xs text-muted-foreground">New York, NY 10001 · Showing {filtered.length} hospitals within 5 km</p>
+            <p className="text-xs text-muted-foreground">{locationName} · Showing {filtered.length} hospitals nearby</p>
           </div>
-          <button onClick={() => setLocated(false)} className="btn-secondary text-xs gap-1.5">
+          <button onClick={() => { setLocated(false); setHospitals([]); }} className="btn-secondary text-xs gap-1.5">
             <RefreshCw className="h-3.5 w-3.5" /> Update
           </button>
         </div>
       )}
-
-      {/* Map Placeholder */}
-      <div className="medical-card overflow-hidden">
-        <div className="relative h-64 bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center">
-          <div className="absolute inset-0 opacity-20">
-            <div className="absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 40px, hsl(213 94% 39% / 0.15) 40px, hsl(213 94% 39% / 0.15) 41px), repeating-linear-gradient(90deg, transparent, transparent 40px, hsl(213 94% 39% / 0.15) 40px, hsl(213 94% 39% / 0.15) 41px)" }} />
-          </div>
-          {located && mockHospitals.map((h, idx) => (
-            <div key={h.id} className="absolute animate-fade-in" style={{ top: `${25 + idx * 12}%`, left: `${20 + idx * 18}%` }}>
-              <div className="relative group cursor-pointer">
-                <div className="w-8 h-8 rounded-full bg-primary shadow-lg flex items-center justify-center text-white text-xs font-bold hover:scale-125 transition-transform">
-                  {idx + 1}
-                </div>
-                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10">
-                  {h.name}
-                </div>
-              </div>
-            </div>
-          ))}
-          {!located && (
-            <div className="text-center">
-              <MapPin className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-              <p className="text-muted-foreground font-medium">Enable GPS to see map</p>
-            </div>
-          )}
-          {located && (
-            <div className="absolute bottom-3 right-3">
-              <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs font-medium text-foreground shadow">
-                📍 New York, NY
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Search & Filter */}
       {located && (
@@ -121,59 +122,74 @@ const HospitalFinder = () => {
           </div>
 
           {/* Hospital Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filtered.map((hospital, idx) => (
-              <div key={hospital.id} className="medical-card p-5 hover:shadow-card transition-shadow animate-fade-in" style={{ animationDelay: `${idx * 0.1}s` }}>
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-primary-light flex items-center justify-center flex-shrink-0">
-                    <Building2 className="h-6 w-6 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
+          {filtered.length === 0 ? (
+            <div className="py-12 text-center">
+              <Building2 className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">No hospitals found nearby. Try increasing the search radius.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filtered.map((hospital, idx) => (
+                <div key={hospital.id || idx} className="medical-card p-5 hover:shadow-card transition-shadow animate-fade-in" style={{ animationDelay: `${idx * 0.1}s` }}>
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-primary-light flex items-center justify-center flex-shrink-0">
+                      <Building2 className="h-6 w-6 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground text-sm leading-tight">{hospital.name}</h3>
-                      <span className="text-xs font-medium text-primary bg-primary-light px-2 py-0.5 rounded-full flex-shrink-0">
-                        {hospital.distance}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                      <MapPin className="h-3 w-3" /> {hospital.address}
-                    </p>
-                    <div className="flex items-center gap-3 mt-2">
-                      <div className="flex items-center gap-1">
-                        <Star className="h-3.5 w-3.5 text-warning fill-warning" />
-                        <span className="text-xs font-semibold text-foreground">{hospital.rating}</span>
+                      {hospital.address && (
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <MapPin className="h-3 w-3" /> {hospital.address}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 mt-2">
+                        {hospital.rating && (
+                          <div className="flex items-center gap-1">
+                            <Star className="h-3.5 w-3.5 text-warning fill-warning" />
+                            <span className="text-xs font-semibold text-foreground">{hospital.rating}</span>
+                          </div>
+                        )}
+                        {hospital.beds && (
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Users className="h-3 w-3" /> {hospital.beds} beds
+                          </div>
+                        )}
+                        {hospital.founded && (
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" /> Est. {hospital.founded}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Users className="h-3 w-3" /> {hospital.beds} beds
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" /> Est. {hospital.founded}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {hospital.specialization.map((s) => (
-                        <span key={s} className="text-xs bg-secondary text-accent px-2 py-0.5 rounded-full">{s}</span>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-                      <Phone className="h-3 w-3" /> {hospital.phone}
+                      {hospital.specializations && hospital.specializations.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {hospital.specializations.map((s) => (
+                            <span key={s} className="text-xs bg-secondary text-accent px-2 py-0.5 rounded-full">{s}</span>
+                          ))}
+                        </div>
+                      )}
+                      {hospital.phone && (
+                        <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
+                          <Phone className="h-3 w-3" /> {hospital.phone}
+                        </div>
+                      )}
                     </div>
                   </div>
+                  <div className="flex gap-2 mt-4">
+                    {hospital.lat && hospital.lng && (
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${hospital.lat},${hospital.lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                      >
+                        <MapPin className="h-3.5 w-3.5" /> Directions
+                      </a>
+                    )}
+                  </div>
                 </div>
-                <div className="flex gap-2 mt-4">
-                  <button
-                    onClick={() => navigate(`/hospitals/${hospital.id}/doctors`)}
-                    className="btn-primary flex-1 text-xs py-2"
-                  >
-                    View Doctors <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                  <button className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" /> Directions
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>

@@ -44,5 +44,10 @@ class UserUpdate(BaseModel):
     age: Optional[int] = None
 
 
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str = Field(..., min_length=6)
+
+
 # Rebuild model to resolve forward reference
 TokenResponse.model_rebuild()

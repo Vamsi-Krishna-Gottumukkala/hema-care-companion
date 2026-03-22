@@ -1,11 +1,12 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   FlaskConical, Stethoscope, TrendingUp, Building2,
   Upload, Activity, MapPin, ChevronRight, CheckCircle,
-  AlertTriangle, XCircle, BarChart2, Clock, FileText
+  AlertTriangle, XCircle, BarChart2, Clock, FileText, Loader2
 } from "lucide-react";
-import { mockDiagnosisHistory } from "@/data/mockData";
+import { diagnosisApi, type DiagnosisRecord } from "@/services/api";
 
 const StatCard = ({
   icon: Icon, label, value, sublabel, colorClass, bgClass
@@ -50,21 +51,32 @@ const QuickAction = ({
 };
 
 const getRiskBadge = (risk: string) => {
-  if (risk === "High") return <span className="badge-high">{risk}</span>;
-  if (risk === "Medium") return <span className="badge-medium">{risk}</span>;
-  return <span className="badge-low">{risk}</span>;
+  if (risk === "high") return <span className="badge-high">High</span>;
+  if (risk === "medium") return <span className="badge-medium">Medium</span>;
+  return <span className="badge-low">Low</span>;
 };
 
 const getStatusIcon = (status: string) => {
-  if (status === "Detected") return <XCircle className="h-4 w-4 text-danger" />;
+  if (status === "detected") return <XCircle className="h-4 w-4 text-danger" />;
   return <CheckCircle className="h-4 w-4 text-success" />;
 };
 
 const UserDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const recent = mockDiagnosisHistory.slice(0, 3);
-  const lastResult = mockDiagnosisHistory[0];
+  const [history, setHistory] = useState<DiagnosisRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    diagnosisApi.getHistory(1, 5)
+      .then((res) => setHistory(res.items))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const recent = history.slice(0, 3);
+  const lastResult = history[0];
+  const totalTests = history.length;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -74,30 +86,40 @@ const UserDashboard = () => {
         <div className="relative z-10">
           <p className="text-white/70 text-sm mb-1">Welcome back,</p>
           <h1 className="text-2xl font-bold font-display mb-1">{user?.name}</h1>
-          <p className="text-white/70 text-sm">Your health dashboard is ready. Last check: {lastResult.date}</p>
+          <p className="text-white/70 text-sm">
+            Your health dashboard is ready.{lastResult ? ` Last check: ${new Date(lastResult.created_at).toLocaleDateString()}` : " No tests yet."}
+          </p>
         </div>
         <div className="relative z-10 flex items-center gap-2 mt-4">
-          <button
-            onClick={() => navigate("/upload-report")}
-            className="bg-white text-primary font-medium text-sm px-4 py-2 rounded-lg hover:bg-white/90 transition-colors flex items-center gap-2"
-          >
+          <button onClick={() => navigate("/upload-report")} className="bg-white text-primary font-medium text-sm px-4 py-2 rounded-lg hover:bg-white/90 transition-colors flex items-center gap-2">
             <Upload className="h-4 w-4" /> Run New Test
           </button>
-          <button
-            onClick={() => navigate("/diagnosis")}
-            className="bg-white/15 text-white font-medium text-sm px-4 py-2 rounded-lg hover:bg-white/20 transition-colors flex items-center gap-2"
-          >
-            <Activity className="h-4 w-4" /> View Last Result
+          <button onClick={() => navigate("/enter-values")} className="bg-white/15 text-white font-medium text-sm px-4 py-2 rounded-lg hover:bg-white/20 transition-colors flex items-center gap-2">
+            <FlaskConical className="h-4 w-4" /> Enter Values
           </button>
         </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={FlaskConical} label="Total Tests" value="5" sublabel="All time" colorClass="text-primary" bgClass="bg-primary-light" />
-        <StatCard icon={Activity} label="Last Result" value={lastResult.status === "Detected" ? "⚠ Positive" : "✓ Clear"} sublabel={lastResult.date} colorClass={lastResult.status === "Detected" ? "text-danger" : "text-success"} bgClass={lastResult.status === "Detected" ? "bg-danger-light" : "bg-success-light"} />
-        <StatCard icon={TrendingUp} label="Risk Level" value={lastResult.riskLevel} sublabel={`${lastResult.confidenceScore}% confidence`} colorClass={lastResult.riskLevel === "High" ? "text-danger" : lastResult.riskLevel === "Medium" ? "text-warning" : "text-success"} bgClass={lastResult.riskLevel === "High" ? "bg-danger-light" : lastResult.riskLevel === "Medium" ? "bg-warning-light" : "bg-success-light"} />
-        <StatCard icon={Building2} label="Nearby Hospitals" value="4" sublabel="Within 5 km" colorClass="text-accent" bgClass="bg-secondary" />
+        <StatCard icon={FlaskConical} label="Total Tests" value={String(totalTests)} sublabel="All time" colorClass="text-primary" bgClass="bg-primary-light" />
+        <StatCard
+          icon={Activity}
+          label="Last Result"
+          value={lastResult ? (lastResult.status === "detected" ? "⚠ Positive" : "✓ Clear") : "—"}
+          sublabel={lastResult ? new Date(lastResult.created_at).toLocaleDateString() : "No tests yet"}
+          colorClass={lastResult?.status === "detected" ? "text-danger" : "text-success"}
+          bgClass={lastResult?.status === "detected" ? "bg-danger-light" : "bg-success-light"}
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Risk Level"
+          value={lastResult?.risk_level || "—"}
+          sublabel={lastResult ? `${lastResult.confidence_score}% confidence` : "Run a test"}
+          colorClass={lastResult?.risk_level === "high" ? "text-danger" : lastResult?.risk_level === "medium" ? "text-warning" : "text-success"}
+          bgClass={lastResult?.risk_level === "high" ? "bg-danger-light" : lastResult?.risk_level === "medium" ? "bg-warning-light" : "bg-success-light"}
+        />
+        <StatCard icon={Building2} label="Nearby Hospitals" value="—" sublabel="Use Hospital Finder" colorClass="text-accent" bgClass="bg-secondary" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -119,45 +141,56 @@ const UserDashboard = () => {
               View All <ChevronRight className="h-3 w-3" />
             </button>
           </div>
-          <div className="medical-card overflow-hidden">
-            <table className="w-full data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Cancer Type</th>
-                  <th>Risk</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((d) => (
-                  <tr key={d.id} className="cursor-pointer" onClick={() => navigate("/diagnosis")}>
-                    <td className="text-muted-foreground">{d.date}</td>
-                    <td>{d.inputType}</td>
-                    <td className="font-medium">{d.cancerType}</td>
-                    <td>{getRiskBadge(d.riskLevel)}</td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
-                        {getStatusIcon(d.status)}
-                        <span className={`text-xs font-medium ${d.status === "Detected" ? "text-danger" : "text-success"}`}>
-                          {d.status}
-                        </span>
-                      </div>
-                    </td>
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : recent.length === 0 ? (
+            <div className="medical-card p-8 text-center">
+              <FlaskConical className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">No diagnoses yet. Run your first test!</p>
+            </div>
+          ) : (
+            <div className="medical-card overflow-hidden">
+              <table className="w-full data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Cancer Type</th>
+                    <th>Risk</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {recent.map((d) => (
+                    <tr key={d.id} className="cursor-pointer" onClick={() => navigate(`/diagnosis?id=${d.id}`)}>
+                      <td className="text-muted-foreground">{new Date(d.created_at).toLocaleDateString("en-GB")}</td>
+                      <td>{d.input_type}</td>
+                      <td className="font-medium">{d.cancer_type || "—"}</td>
+                      <td>{getRiskBadge(d.risk_level || "low")}</td>
+                      <td>
+                        <div className="flex items-center gap-1.5">
+                          {getStatusIcon(d.status)}
+                          <span className={`text-xs font-medium ${d.status === "detected" ? "text-danger" : "text-success"}`}>
+                            {d.status === "detected" ? "Detected" : "Clear"}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* AI Alert */}
-          {lastResult.status === "Detected" && (
+          {lastResult?.status === "detected" && (
             <div className="mt-4 bg-danger-light border border-danger/20 rounded-xl p-4 flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-danger flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-semibold text-danger">Cancer Detected — Immediate Action Required</p>
-                <p className="text-xs text-muted-foreground mt-1">Your last test detected {lastResult.cancerType} with {lastResult.confidenceScore}% confidence. Please consult a hematologist immediately.</p>
+                <p className="text-xs text-muted-foreground mt-1">Your last test detected {lastResult.cancer_type} with {lastResult.confidence_score}% confidence. Please consult a hematologist immediately.</p>
                 <button onClick={() => navigate("/hospitals")} className="mt-2 text-xs font-medium text-danger underline">
                   Find Specialists Near You →
                 </button>
@@ -172,7 +205,7 @@ const UserDashboard = () => {
         {[
           { icon: Stethoscope, title: "Regular Monitoring", desc: "Run blood tests every 3 months for early detection." },
           { icon: Activity, title: "Track Progress", desc: "Monitor your blood parameters over time with our charts." },
-          { icon: Building2, title: "Expert Care", desc: "Connect with 500+ hematology specialists in your area." },
+          { icon: Building2, title: "Expert Care", desc: "Connect with hematology specialists in your area." },
         ].map((tip) => (
           <div key={tip.title} className="p-4 rounded-xl bg-primary-light border border-primary/10 flex gap-3">
             <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">

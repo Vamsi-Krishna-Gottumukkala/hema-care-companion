@@ -1,17 +1,29 @@
-import { useState } from "react";
-import { Activity, Search, Eye } from "lucide-react";
-import { mockAdminDiagnoses } from "@/data/mockData";
+import { useState, useEffect } from "react";
+import { Activity, Search, Eye, Loader2 } from "lucide-react";
+import { adminApi, type DiagnosisRecord } from "@/services/api";
 
 const getRisk = (risk: string) => {
-  if (risk === "High") return <span className="badge-high">{risk}</span>;
-  if (risk === "Medium") return <span className="badge-medium">{risk}</span>;
-  return <span className="badge-low">{risk}</span>;
+  if (risk === "high") return <span className="badge-high">High</span>;
+  if (risk === "medium") return <span className="badge-medium">Medium</span>;
+  return <span className="badge-low">Low</span>;
 };
 
 const DiagnosisMonitoring = () => {
+  const [diagnoses, setDiagnoses] = useState<(DiagnosisRecord & { user_name?: string; user_email?: string })[]>([]);
   const [search, setSearch] = useState("");
-  const filtered = mockAdminDiagnoses.filter(
-    (d) => d.user.toLowerCase().includes(search.toLowerCase()) || d.cancerType.toLowerCase().includes(search.toLowerCase())
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminApi.listDiagnoses(1, 100)
+      .then((res) => setDiagnoses(res.items))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = diagnoses.filter(
+    (d) =>
+      (d.user_name || "").toLowerCase().includes(search.toLowerCase()) ||
+      (d.cancer_type || "").toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -31,54 +43,57 @@ const DiagnosisMonitoring = () => {
         <input value={search} onChange={(e) => setSearch(e.target.value)} className="medical-input pl-10" placeholder="Search user or cancer type..." />
       </div>
 
-      <div className="medical-card overflow-hidden">
-        <table className="w-full data-table">
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Test Date</th>
-              <th>Cancer Type</th>
-              <th>Risk Level</th>
-              <th>Confidence</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((d) => (
-              <tr key={d.id}>
-                <td>
-                  <div>
-                    <p className="font-medium text-sm text-foreground">{d.user}</p>
-                    <p className="text-xs text-muted-foreground">{d.email}</p>
-                  </div>
-                </td>
-                <td className="text-muted-foreground text-sm">{d.testDate}</td>
-                <td className="font-semibold">{d.cancerType}</td>
-                <td>{getRisk(d.riskLevel)}</td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full" style={{ width: `${d.confidence}%` }} />
-                    </div>
-                    <span className="text-xs font-medium">{d.confidence}%</span>
-                  </div>
-                </td>
-                <td>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${d.status === "Detected" ? "bg-danger-light text-danger" : "bg-success-light text-success"}`}>
-                    {d.status}
-                  </span>
-                </td>
-                <td>
-                  <button className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                    <Eye className="h-4 w-4 text-primary" />
-                  </button>
-                </td>
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : (
+        <div className="medical-card overflow-hidden">
+          <table className="w-full data-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Test Date</th>
+                <th>Cancer Type</th>
+                <th>Risk Level</th>
+                <th>Confidence</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map((d) => (
+                <tr key={d.id}>
+                  <td>
+                    <div>
+                      <p className="font-medium text-sm text-foreground">{d.user_name || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground">{d.user_email || ""}</p>
+                    </div>
+                  </td>
+                  <td className="text-muted-foreground text-sm">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
+                  <td className="font-semibold">{d.cancer_type || "—"}</td>
+                  <td>{getRisk(d.risk_level || "low")}</td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary rounded-full" style={{ width: `${d.confidence_score || 0}%` }} />
+                      </div>
+                      <span className="text-xs font-medium">{d.confidence_score || 0}%</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${d.status === "detected" ? "bg-danger-light text-danger" : "bg-success-light text-success"}`}>
+                      {d.status === "detected" ? "Detected" : "Clear"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <div className="py-10 text-center text-muted-foreground text-sm">No diagnoses found</div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -97,8 +97,13 @@ async def diagnose_upload_report(
     except Exception:
         file_url = None
 
-    # Analyze with Gemini Vision
-    result = await analyze_report_image(image_bytes, file.content_type)
+    # Analyze with OCR/Vision Model
+    try:
+        result = await analyze_report_image(image_bytes, file.content_type)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="AI analysis failed. Please try again or enter values manually.")
 
     # Extract blood values from result
     extracted = result.get("extracted_values", {})

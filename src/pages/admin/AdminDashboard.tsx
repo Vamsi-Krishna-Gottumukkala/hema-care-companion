@@ -1,16 +1,19 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, Activity, TrendingUp, Brain, ChevronRight,
-  AlertTriangle, CheckCircle, BarChart2, Shield
+  AlertTriangle, CheckCircle, BarChart2, Shield, Loader2
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line
 } from "recharts";
-import { mockMonthlyData, mockCancerTypeData, mockAdminDiagnoses } from "@/data/mockData";
+import { adminApi, type AdminStats } from "@/services/api";
 
-const StatCard = ({ icon: Icon, label, value, change, colorClass, bgClass }: {
-  icon: React.ElementType; label: string; value: string; change: string;
+const COLORS = ["#2563eb", "#dc2626", "#f59e0b", "#16a34a", "#8b5cf6"];
+
+const StatCard = ({ icon: Icon, label, value, colorClass, bgClass }: {
+  icon: React.ElementType; label: string; value: string;
   colorClass: string; bgClass: string;
 }) => (
   <div className="stat-card">
@@ -18,28 +21,35 @@ const StatCard = ({ icon: Icon, label, value, change, colorClass, bgClass }: {
       <div className={`w-12 h-12 rounded-xl ${bgClass} flex items-center justify-center`}>
         <Icon className={`h-6 w-6 ${colorClass}`} />
       </div>
-      <span className="text-xs text-success font-medium">{change}</span>
     </div>
     <div className={`text-3xl font-bold font-display ${colorClass} mb-1`}>{value}</div>
     <div className="text-sm text-muted-foreground">{label}</div>
   </div>
 );
 
-const accuracyData = [
-  { month: "Sep", accuracy: 91.2 }, { month: "Oct", accuracy: 92.5 },
-  { month: "Nov", accuracy: 93.1 }, { month: "Dec", accuracy: 93.8 },
-  { month: "Jan", accuracy: 94.0 }, { month: "Feb", accuracy: 94.3 },
-  { month: "Mar", accuracy: 94.6 },
-];
-
-const getRiskBadge = (risk: string) => {
-  if (risk === "High") return <span className="badge-high">{risk}</span>;
-  if (risk === "Medium") return <span className="badge-medium">{risk}</span>;
-  return <span className="badge-low">{risk}</span>;
-};
-
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminApi.getStats()
+      .then(setStats)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const monthlyData = stats?.monthly_data || [];
+  const cancerTypeData = (stats?.cancer_type_data || []).map((d, i) => ({ ...d, color: COLORS[i % COLORS.length] }));
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
@@ -67,10 +77,10 @@ const AdminDashboard = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Users} label="Total Users" value="2,847" change="+12.4%" colorClass="text-primary" bgClass="bg-primary-light" />
-        <StatCard icon={Activity} label="Total Diagnoses" value="14,203" change="+8.1%" colorClass="text-accent" bgClass="bg-secondary" />
-        <StatCard icon={AlertTriangle} label="Cancer Detected" value="3,842" change="+5.3%" colorClass="text-danger" bgClass="bg-danger-light" />
-        <StatCard icon={Brain} label="Model Accuracy" value="94.6%" change="+0.3%" colorClass="text-success" bgClass="bg-success-light" />
+        <StatCard icon={Users} label="Total Users" value={String(stats?.total_users || 0)} colorClass="text-primary" bgClass="bg-primary-light" />
+        <StatCard icon={Activity} label="Total Diagnoses" value={String(stats?.total_diagnoses || 0)} colorClass="text-accent" bgClass="bg-secondary" />
+        <StatCard icon={AlertTriangle} label="Cancer Detected" value={String(stats?.cancer_detected || 0)} colorClass="text-danger" bgClass="bg-danger-light" />
+        <StatCard icon={Brain} label="Model Accuracy" value={`${stats?.model_accuracy || 0}%`} colorClass="text-success" bgClass="bg-success-light" />
       </div>
 
       {/* Charts row */}
@@ -80,16 +90,20 @@ const AdminDashboard = () => {
           <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
             <BarChart2 className="h-4 w-4 text-primary" /> Monthly Diagnoses
           </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={mockMonthlyData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-              <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }} />
-              <Bar dataKey="diagnoses" name="Total Tests" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="detected" name="Detected" fill="hsl(var(--danger))" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {monthlyData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={monthlyData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }} />
+                <Bar dataKey="diagnoses" name="Total Tests" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="detected" name="Detected" fill="hsl(var(--danger))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[220px] flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
+          )}
         </div>
 
         {/* Cancer type pie */}
@@ -97,63 +111,21 @@ const AdminDashboard = () => {
           <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-primary" /> Cancer Type Distribution
           </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={mockCancerTypeData} dataKey="value" cx="50%" cy="50%" innerRadius={55} outerRadius={80}>
-                {mockCancerTypeData.map((entry, idx) => (
-                  <Cell key={idx} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }} />
-              <Legend iconType="circle" iconSize={8} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Accuracy trend */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 medical-card p-5">
-          <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-            <Brain className="h-4 w-4 text-primary" /> Model Accuracy Trend
-          </h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={accuracyData} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-              <YAxis domain={[90, 96]} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }} />
-              <Line type="monotone" dataKey="accuracy" stroke="hsl(var(--success))" strokeWidth={2} dot={{ fill: "hsl(var(--success))", r: 4 }} name="Accuracy %" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Recent diagnoses */}
-        <div className="medical-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-foreground">Recent Diagnoses</h3>
-            <button onClick={() => navigate("/admin/diagnoses")} className="text-xs text-primary hover:underline flex items-center gap-1">
-              View All <ChevronRight className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="space-y-3">
-            {mockAdminDiagnoses.slice(0, 4).map((d) => (
-              <div key={d.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${d.status === "Detected" ? "bg-danger-light text-danger" : "bg-success-light text-success"}`}>
-                  {d.user.split(" ").map((n) => n[0]).join("")}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-foreground truncate">{d.user}</p>
-                  <p className="text-xs text-muted-foreground">{d.testDate}</p>
-                </div>
-                <div>
-                  {d.status === "Detected"
-                    ? <span className="badge-high text-xs">{d.cancerType}</span>
-                    : <span className="badge-low text-xs">Clear</span>}
-                </div>
-              </div>
-            ))}
-          </div>
+          {cancerTypeData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={cancerTypeData} dataKey="value" cx="50%" cy="50%" innerRadius={55} outerRadius={80}>
+                  {cancerTypeData.map((entry, idx) => (
+                    <Cell key={idx} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }} />
+                <Legend iconType="circle" iconSize={8} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[220px] flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
+          )}
         </div>
       </div>
 

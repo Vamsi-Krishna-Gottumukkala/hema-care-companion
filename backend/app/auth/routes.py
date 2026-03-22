@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from app.auth.models import (
     UserRegister, UserLogin, GoogleLoginRequest,
-    TokenResponse, UserResponse,
+    TokenResponse, UserResponse, ResetPasswordRequest,
 )
 from app.auth.utils import hash_password, verify_password, create_access_token, generate_avatar
 from app.database import get_supabase_admin
@@ -162,6 +162,27 @@ async def login_google(body: GoogleLoginRequest):
             created_at=user.get("created_at"),
         ),
     )
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    """Reset user password by email. Sets a new password directly."""
+    sb = get_supabase_admin()
+
+    result = sb.table("users").select("id, email, status").eq("email", body.email).execute()
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email",
+        )
+
+    user = result.data[0]
+    if user.get("status") == "disabled":
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    new_hash = hash_password(body.new_password)
+    sb.table("users").update({"password_hash": new_hash}).eq("id", user["id"]).execute()
+
+    return {"message": "Password reset successfully. You can now log in with your new password."}
 
 
 @router.get("/me", response_model=UserResponse)

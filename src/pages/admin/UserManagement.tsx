@@ -1,21 +1,34 @@
-import { useState } from "react";
-import { Users, Search, MoreVertical, UserCheck, UserX, Trash2, Filter } from "lucide-react";
-import { mockUsers } from "@/data/mockData";
+import { useState, useEffect } from "react";
+import { Users, Search, UserCheck, UserX, Loader2 } from "lucide-react";
+import { adminApi, type AdminUser } from "@/services/api";
 
 const UserManagement = () => {
-  const [users, setUsers] = useState(mockUsers);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+
+  const fetchUsers = (searchTerm?: string) => {
+    setLoading(true);
+    adminApi.listUsers(1, 100, searchTerm || undefined)
+      .then((res) => setUsers(res.items))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchUsers(); }, []);
 
   const filtered = users
     .filter((u) => filter === "all" || u.status.toLowerCase() === filter)
     .filter((u) => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
 
-  const toggleStatus = (id: string) => {
-    setUsers(users.map((u) => u.id === id ? { ...u, status: u.status === "Active" ? "Disabled" : "Active" } : u));
+  const toggleStatus = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === "active" ? "disabled" : "active";
+    try {
+      await adminApi.updateUserStatus(id, newStatus as "active" | "disabled");
+      setUsers(users.map((u) => u.id === id ? { ...u, status: newStatus } : u));
+    } catch { /* ignore */ }
   };
-
-  const deleteUser = (id: string) => setUsers(users.filter((u) => u.id !== id));
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -46,59 +59,58 @@ const UserManagement = () => {
         </div>
       </div>
 
-      <div className="medical-card overflow-hidden">
-        <table className="w-full data-table">
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Registered</th>
-              <th>Tests</th>
-              <th>Last Active</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((u) => (
-              <tr key={u.id}>
-                <td>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold">
-                      {u.name.split(" ").map((n) => n[0]).join("")}
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground text-sm">{u.name}</p>
-                      <p className="text-xs text-muted-foreground">{u.email}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="text-muted-foreground text-sm">{u.registrationDate}</td>
-                <td><span className="font-semibold text-foreground">{u.testsCount}</span></td>
-                <td className="text-muted-foreground text-sm">{u.lastActive}</td>
-                <td>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${u.status === "Active" ? "bg-success-light text-success" : "bg-muted text-muted-foreground"}`}>
-                    {u.status}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => toggleStatus(u.id)} title={u.status === "Active" ? "Disable" : "Enable"}
-                      className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                      {u.status === "Active" ? <UserX className="h-4 w-4 text-warning" /> : <UserCheck className="h-4 w-4 text-success" />}
-                    </button>
-                    <button onClick={() => deleteUser(u.id)} title="Delete" className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                      <Trash2 className="h-4 w-4 text-danger" />
-                    </button>
-                  </div>
-                </td>
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : (
+        <div className="medical-card overflow-hidden">
+          <table className="w-full data-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Registered</th>
+                <th>Tests</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div className="py-10 text-center text-muted-foreground text-sm">No users found</div>
-        )}
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map((u) => (
+                <tr key={u.id}>
+                  <td>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold">
+                        {u.avatar || u.name.split(" ").map((n) => n[0]).join("")}
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground text-sm">{u.name}</p>
+                        <p className="text-xs text-muted-foreground">{u.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="text-muted-foreground text-sm">{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
+                  <td><span className="font-semibold text-foreground">{u.tests_count}</span></td>
+                  <td>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${u.status === "active" ? "bg-success-light text-success" : "bg-muted text-muted-foreground"}`}>
+                      {u.status}
+                    </span>
+                  </td>
+                  <td>
+                    <button onClick={() => toggleStatus(u.id, u.status)} title={u.status === "active" ? "Disable" : "Enable"}
+                      className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+                      {u.status === "active" ? <UserX className="h-4 w-4 text-warning" /> : <UserCheck className="h-4 w-4 text-success" />}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <div className="py-10 text-center text-muted-foreground text-sm">No users found</div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

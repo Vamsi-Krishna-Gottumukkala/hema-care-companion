@@ -1,7 +1,23 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FlaskConical, AlertCircle, CheckCircle, Info, Microscope, RotateCcw } from "lucide-react";
-import { defaultBloodValues, normalRanges } from "@/data/mockData";
+import { FlaskConical, AlertCircle, CheckCircle, Info, Microscope, RotateCcw, Loader2 } from "lucide-react";
+import { diagnosisApi, type BloodValues } from "@/services/api";
+
+const normalRanges: Record<string, { min: number; max: number; unit: string }> = {
+  wbc: { min: 4.0, max: 11.0, unit: "×10³/µL" },
+  rbc: { min: 4.5, max: 5.5, unit: "×10⁶/µL" },
+  hemoglobin: { min: 12.0, max: 17.5, unit: "g/dL" },
+  platelet: { min: 150, max: 400, unit: "×10³/µL" },
+  neutrophils: { min: 40, max: 70, unit: "%" },
+  lymphocytes: { min: 20, max: 40, unit: "%" },
+  monocytes: { min: 2, max: 8, unit: "%" },
+  eosinophils: { min: 1, max: 4, unit: "%" },
+};
+
+const defaultBloodValues: Record<string, string> = {
+  wbc: "", rbc: "", hemoglobin: "", platelet: "",
+  neutrophils: "", lymphocytes: "", monocytes: "", eosinophils: "",
+};
 
 const fields = [
   { key: "wbc", label: "WBC Count", description: "White Blood Cell Count" },
@@ -18,17 +34,39 @@ type FieldKey = keyof typeof defaultBloodValues;
 
 const EnterValues = () => {
   const navigate = useNavigate();
-  const [values, setValues] = useState<Record<FieldKey, string>>(defaultBloodValues);
+  const [values, setValues] = useState<Record<FieldKey, string>>({ ...defaultBloodValues });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
     fields.forEach(({ key }) => {
-      const v = values[key];
-      if (!v) { newErrors[key] = "Required"; return; }
-      if (isNaN(Number(v)) || Number(v) < 0) { newErrors[key] = "Must be a positive number"; return; }
+      const vStr = values[key as FieldKey];
+      if (!vStr) { newErrors[key] = "Required"; return; }
+      const v = Number(vStr);
+      if (isNaN(v) || v <= 0) { newErrors[key] = "Must be > 0"; return; }
+      
+      // Plausible max limits
+      if (key === 'wbc' && v > 500) newErrors[key] = "Value too high (>500)";
+      if (key === 'rbc' && v > 15) newErrors[key] = "Value too high (>15)";
+      if (key === 'hemoglobin' && v > 30) newErrors[key] = "Value too high (>30)";
+      if (key === 'platelet' && v > 3000) newErrors[key] = "Value too high (>3000)";
+      if (['neutrophils', 'lymphocytes', 'monocytes', 'eosinophils'].includes(key) && v > 100) {
+        newErrors[key] = "Max 100%";
+      }
     });
+
+    const neut = Number(values.neutrophils) || 0;
+    const lymph = Number(values.lymphocytes) || 0;
+    const mono = Number(values.monocytes) || 0;
+    const eos = Number(values.eosinophils) || 0;
+    if (neut + lymph + mono + eos > 100) {
+       setSubmitError("Differential percentages cannot sum to more than 100%.");
+       setErrors(newErrors);
+       return false;
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -46,8 +84,25 @@ const EnterValues = () => {
     e.preventDefault();
     if (!validate()) return;
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    navigate("/diagnosis");
+    setSubmitError("");
+    try {
+      const bloodValues: BloodValues = {
+        wbc: Number(values.wbc),
+        rbc: Number(values.rbc),
+        hemoglobin: Number(values.hemoglobin),
+        platelet: Number(values.platelet),
+        neutrophils: Number(values.neutrophils),
+        lymphocytes: Number(values.lymphocytes),
+        monocytes: Number(values.monocytes),
+        eosinophils: Number(values.eosinophils),
+      };
+      const result = await diagnosisApi.submitBloodValues(bloodValues);
+      navigate(`/diagnosis?id=${result.id}`);
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : "Analysis failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const fillSample = () => {
@@ -144,12 +199,17 @@ const EnterValues = () => {
           <div className="flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5 text-danger" /> Requires attention</div>
         </div>
 
+        {submitError && (
+          <div className="bg-danger-light border border-danger/20 text-danger rounded-lg px-4 py-3 text-sm mb-4">
+            {submitError}
+          </div>
+        )}
+
         <div className="flex items-center gap-3">
           <button type="submit" disabled={submitting} className="btn-primary px-8">
-            <Microscope className="h-4 w-4" />
-            {submitting ? "Analyzing..." : "Run AI Diagnosis"}
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Analyzing...</> : <><Microscope className="h-4 w-4" /> Run AI Diagnosis</>}
           </button>
-          <button type="button" onClick={() => setValues(defaultBloodValues)} className="btn-secondary">
+          <button type="button" onClick={() => setValues({ ...defaultBloodValues })} className="btn-secondary">
             <RotateCcw className="h-4 w-4" /> Reset
           </button>
         </div>
