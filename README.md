@@ -1,73 +1,86 @@
-# Welcome to your Lovable project
+# Hema Care Companion
 
-## Project info
+This project consists of a full-stack application with a React/Vite frontend and a FastAPI (Python) backend.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Prerequisites
 
-## How can I edit this code?
+Before you begin, ensure you have the following installed:
+- [Node.js & npm](https://nodejs.org/)
+- [Python 3.8+](https://www.python.org/downloads/)
+- Git
 
-There are several ways of editing your application.
+## Project Structure
 
-**Use Lovable**
+The project is divided into two main parts:
+- **Frontend**: The root directory contains the Vite/React application.
+- **Backend**: The `backend/` directory contains the FastAPI application.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Setup Instructions
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### 1. Clone the repository
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
 git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+cd hema-care-companion
 ```
 
-**Edit a file directly in GitHub**
+### 2. Backend Setup (FastAPI)
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Open a terminal and navigate to the backend directory:
 
-**Use GitHub Codespaces**
+```sh
+cd backend
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Create and activate a virtual environment (optional but highly recommended):
 
-## What technologies are used for this project?
+```sh
+# On Windows
+python -m venv venv
+venv\Scripts\activate
 
-This project is built with:
+# On macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Install the required backend dependencies:
 
-## How can I deploy this project?
+```sh
+pip install -r requirements.txt
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+**Environment Variables:**
+Create a `.env` file inside the `backend/` directory. You can use `.env.example` as a reference.
 
-## Can I connect a custom domain to my Lovable project?
+Run the FastAPI development server:
 
-Yes, you can!
+```sh
+python -m uvicorn app.main:app --reload
+```
+The backend will usually be accessible at `http://localhost:8000`.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### 3. Frontend Setup (React/Vite)
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Open a separate terminal window and ensure you are in the root directory (`hema-care-companion`).
+
+Install the required frontend dependencies:
+
+```sh
+npm install
+```
+
+**Environment Variables:**
+Create a `.env` file in the root directory and configure any necessary environment variables.
+
+Run the frontend development server:
+
+```sh
+npm run dev
+```
+The frontend will typically run at `http://localhost:5173` or `http://localhost:8080` (check terminal output for the exact URL).
+
+## Technologies Used
+
+- **Frontend**: Vite, React, TypeScript, Tailwind CSS, shadcn-ui
+- **Backend**: Python, FastAPI, Uvicorn, Supabase
