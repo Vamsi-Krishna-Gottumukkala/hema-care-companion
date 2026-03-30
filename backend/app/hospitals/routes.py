@@ -2,8 +2,18 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from app.auth.dependencies import get_current_user
 from app.database import get_supabase_admin
 from app.hospitals.mapbox_service import search_nearby_hospitals
+import math
 
 router = APIRouter(prefix="/api", tags=["Hospitals & Doctors"])
+
+def get_distance_haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great circle distance in meters between two points on the earth."""
+    R = 6371000  # Radius of earth in meters
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
 
 
 @router.get("/hospitals/nearby")
@@ -13,9 +23,30 @@ async def get_nearby_hospitals(
     radius: int = Query(5000, description="Search radius in meters"),
     user: dict = Depends(get_current_user),
 ):
-    """Find nearby hospitals via Mapbox API."""
-    hospitals = await search_nearby_hospitals(lat, lng, radius)
-    return {"hospitals": hospitals, "total": len(hospitals)}
+    """Find nearby hospitals via Mapbox API and Local Database."""
+    # 1. Fetch Mapbox API external hospitals
+    mapbox_hospitals = await search_nearby_hospitals(lat, lng, radius)
+
+    # 2. Fetch all local custom hospitals
+    sb = get_supabase_admin()
+    db_res = sb.table("hospitals").select("*").execute()
+    local_hospitals = []
+    
+    if db_res.data:
+        for dh in db_res.data:
+            h_lat = dh.get("lat")
+            h_lng = dh.get("lng")
+            if h_lat is not None and h_lng is not None:
+                dist = get_distance_haversine(lat, lng, float(h_lat), float(h_lng))
+                if dist <= radius:
+                    dh["source"] = "manual"
+                    dh["distance"] = f"{int(dist + 0.5)} m" if dist < 1000 else f"{dist/1000:.1f} km"
+                    local_hospitals.append(dh)
+
+    # 3. Merge: Local verified DB hospitals get priority top sorting
+    merged = local_hospitals + mapbox_hospitals
+
+    return {"hospitals": merged, "total": len(merged)}
 
 
 @router.get("/hospitals")

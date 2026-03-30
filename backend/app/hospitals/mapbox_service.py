@@ -64,8 +64,8 @@ async def _search_box_hospitals(lat: float, lng: float, token: str) -> list[dict
 
 async def _geocoding_hospitals(lat: float, lng: float, token: str) -> list[dict]:
     """Fallback: Mapbox Geocoding v5 with multiple queries for broader coverage."""
-    # Try multiple search terms to improve coverage in India
-    queries = ["hospital", "clinic", "medical center", "nursing home", "health center"]
+    # Strict search terms for oncology & hematology to avoid generic POI noise
+    queries = ["hospital", "cancer hospital", "oncology center", "hematology clinic"]
     seen_names: set[str] = set()
     all_hospitals: list[dict] = []
 
@@ -82,6 +82,13 @@ async def _geocoding_hospitals(lat: float, lng: float, token: str) -> list[dict]
                 continue
             for h in batch:
                 name = h.get("name", "")
+                
+                # Strict name filter: only include if the name actually sounds medical
+                name_lower = name.lower()
+                valid_keywords = ["hospital", "clinic", "medical", "health", "care", "cancer", "oncolog", "hematolog", "diagnostics"]
+                if not any(k in name_lower for k in valid_keywords):
+                    continue
+
                 if name and name not in seen_names:
                     seen_names.add(name)
                     all_hospitals.append(h)
