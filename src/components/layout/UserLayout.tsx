@@ -4,13 +4,14 @@ import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Upload, FlaskConical, Activity, FileText,
   MapPin, ClipboardList, LogOut, ChevronLeft, ChevronRight,
-  Dna, Bell, User, Menu, X
+  Dna, Bell, User, Menu, X, Microscope
 } from "lucide-react";
 import hemaLogo from "@/assets/hema-logo.png";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", to: "/dashboard" },
   { icon: Upload, label: "Upload Report", to: "/upload-report" },
+  { icon: Microscope, label: "Blood Smear Scan", to: "/blood-smear-scan" },
   { icon: FlaskConical, label: "Enter Blood Values", to: "/enter-values" },
   { icon: Activity, label: "Diagnosis Result", to: "/diagnosis" },
   { icon: FileText, label: "Medical Reports", to: "/reports" },

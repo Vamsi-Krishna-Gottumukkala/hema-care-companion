@@ -205,6 +205,15 @@ export const diagnosisApi = {
     });
   },
 
+  uploadBloodSmear: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiRequest<DiagnosisResponse>("/api/diagnosis/blood-smear", {
+      method: "POST",
+      body: formData,
+    });
+  },
+
   getHistory: (page = 1, limit = 20) =>
     apiRequest<DiagnosisHistoryResponse>(`/api/diagnosis/history?page=${page}&limit=${limit}`),
 

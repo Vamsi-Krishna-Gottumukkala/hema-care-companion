@@ -17,6 +17,7 @@ import AdminLayout from "@/components/layout/AdminLayout";
 // User Pages
 import UserDashboard from "@/pages/user/Dashboard";
 import UploadReport from "@/pages/user/UploadReport";
+import BloodSmearScan from "@/pages/user/BloodSmearScan";
 import EnterValues from "@/pages/user/EnterValues";
 import DiagnosisResult from "@/pages/user/DiagnosisResult";
 import MedicalReports from "@/pages/user/MedicalReports";
@@ -53,6 +54,7 @@ const App = () => (
             {/* User Routes */}
             <Route path="/dashboard" element={<ProtectedRoute role="user"><UserLayout><UserDashboard /></UserLayout></ProtectedRoute>} />
             <Route path="/upload-report" element={<ProtectedRoute role="user"><UserLayout><UploadReport /></UserLayout></ProtectedRoute>} />
+            <Route path="/blood-smear-scan" element={<ProtectedRoute role="user"><UserLayout><BloodSmearScan /></UserLayout></ProtectedRoute>} />
             <Route path="/enter-values" element={<ProtectedRoute role="user"><UserLayout><EnterValues /></UserLayout></ProtectedRoute>} />
             <Route path="/diagnosis" element={<ProtectedRoute role="user"><UserLayout><DiagnosisResult /></UserLayout></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute role="user"><UserLayout><MedicalReports /></UserLayout></ProtectedRoute>} />

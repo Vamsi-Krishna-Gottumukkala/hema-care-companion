@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from app.auth.dependencies import get_current_user
 from app.diagnosis.models import BloodValues
-from app.diagnosis.gemini_service import analyze_blood_values, analyze_report_image
+from app.diagnosis.gemini_service import analyze_blood_values, analyze_report_image, analyze_blood_smear
 from app.database import get_supabase_admin
 
 router = APIRouter(prefix="/api/diagnosis", tags=["Diagnosis"])
@@ -141,6 +141,73 @@ async def diagnose_upload_report(
         "user_id": saved["user_id"],
         "input_type": saved["input_type"],
         "extracted_values": extracted,
+        "report_file_url": file_url,
+        "result": result,
+        "created_at": saved["created_at"],
+    }
+
+
+@router.post("/blood-smear")
+async def diagnose_blood_smear(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Upload microscopic blood smear image for AI morphological analysis."""
+    if not file.content_type:
+        raise HTTPException(status_code=400, detail="File type not detected")
+
+    allowed = ["image/jpeg", "image/png", "image/tiff", "image/webp"]
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+    if file.size and file.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds 10MB limit")
+
+    _log("Vision Engine", "INFO", f"Blood smear analysis started for {user['email']}", user["id"])
+
+    image_bytes = await file.read()
+
+    # Upload to Supabase Storage
+    sb = get_supabase_admin()
+    import uuid
+    file_path = f"smears/{user['id']}/{uuid.uuid4()}_{file.filename}"
+    try:
+        sb.storage.from_("uploads").upload(file_path, image_bytes, {"content-type": file.content_type})
+        file_url = f"{sb.supabase_url}/storage/v1/object/public/uploads/{file_path}"
+    except Exception:
+        file_url = None
+
+    # Analyze with Gemini Vision
+    try:
+        result = await analyze_blood_smear(image_bytes, file.content_type)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="AI analysis failed. Please ensure the image is clear.")
+
+    diagnosis_data = {
+        "user_id": user["id"],
+        "input_type": "report_upload",
+        "report_file_url": file_url,
+        "status": result.get("status", "not_detected"),
+        "cancer_type": result.get("cancer_type", "none"),
+        "risk_level": result.get("risk_level", "low"),
+        "confidence_score": result.get("confidence_score", 0),
+        "ai_explanation": result.get("ai_explanation", []),
+        "parameter_analysis": [],
+    }
+
+    insert = sb.table("diagnoses").insert(diagnosis_data).execute()
+    if not insert.data:
+        raise HTTPException(status_code=500, detail="Failed to save diagnosis")
+
+    saved = insert.data[0]
+    _log("Vision Engine", "INFO", f"Smear analyzed for {user['email']}", user["id"])
+
+    return {
+        "id": saved["id"],
+        "user_id": saved["user_id"],
+        "input_type": saved["input_type"],
         "report_file_url": file_url,
         "result": result,
         "created_at": saved["created_at"],
